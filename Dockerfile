@@ -4,7 +4,6 @@ FROM nginx:alpine
 RUN mkdir -p /usr/share/nginx/html/_next
 COPY public /usr/share/nginx/html
 COPY .next/static /usr/share/nginx/html/_next/static
-COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
