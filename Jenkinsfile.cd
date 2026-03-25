@@ -8,9 +8,9 @@ pipeline {
             defaultValue: 'latest',
             description: 'Tag de la imagen Docker a desplegar'
         )
-        choice(
+        string(
             name: 'ENVIRONMENT',
-            choices: ['dev', 'prod'],
+            defaultValue: 'dev',
             description: 'Ambiente destino del despliegue'
         )
     }
