@@ -1,0 +1,115 @@
+pipeline {
+
+    agent any
+
+    parameters {
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'latest',
+            description: 'Tag de la imagen Docker a desplegar'
+        )
+        choice(
+            name: 'ENVIRONMENT',
+            choices: ['dev', 'prod'],
+            description: 'Ambiente destino del despliegue'
+        )
+    }
+
+    environment {
+        APP_NAME       = 'alerta-radar'
+        IMAGE_NAME     = "rovidev/${APP_NAME}"
+        CONTAINER_PORT = '80'
+    }
+
+    stages {
+
+        stage('Deploy to DEV') {
+            when {
+                expression { params.ENVIRONMENT == 'dev' }
+            }
+            environment {
+                VPS_HOST       = credentials('vps-contabo-host')
+                VPS_USER       = credentials('vps-contabo-user')
+                CONTAINER_NAME = "${APP_NAME}-dev"
+                HOST_PORT      = '3000'
+            }
+            steps {
+                echo "========== [CD] Deploying ${IMAGE_NAME}:${params.IMAGE_TAG} to DEV =========="
+                sshagent(credentials: ['vps-dev-ssh-credentials']) {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        sh """
+                            ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "
+                                echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin && \
+                                docker pull ${IMAGE_NAME}:${params.IMAGE_TAG} && \
+                                docker stop ${CONTAINER_NAME} || true && \
+                                docker rm ${CONTAINER_NAME} || true && \
+                                docker run -d \
+                                    --name ${CONTAINER_NAME} \
+                                    --restart unless-stopped \
+                                    -p ${HOST_PORT}:${CONTAINER_PORT} \
+                                    ${IMAGE_NAME}:${params.IMAGE_TAG}
+                            "
+                        """
+                    }
+                }
+            }
+        }
+
+        // ====== DEPLOY PROD — requiere aprobación manual ======
+        stage('Deploy to PROD') {
+            when {
+                expression { params.ENVIRONMENT == 'prod' }
+            }
+            environment {
+                VPS_HOST       = credentials('vps-contabo-host')
+                VPS_USER       = credentials('vps-contabo-user')
+                CONTAINER_NAME = "${APP_NAME}-prod"
+                HOST_PORT      = '3001'
+            }
+            steps {
+                echo "========== [CD] Deploying ${IMAGE_NAME}:${params.IMAGE_TAG} to PROD =========="
+
+                timeout(time: 10, unit: 'MINUTES') {
+                    input message: "¿Confirmar deploy a PRODUCCIÓN de ${IMAGE_NAME}:${params.IMAGE_TAG}?",
+                          ok: 'Desplegar'
+                }
+
+                sshagent(credentials: ['vps-dev-ssh-credentials']) {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        sh """
+                            ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "
+                                echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin && \
+                                docker pull ${IMAGE_NAME}:${params.IMAGE_TAG} && \
+                                docker stop ${CONTAINER_NAME} || true && \
+                                docker rm ${CONTAINER_NAME} || true && \
+                                docker run -d \
+                                    --name ${CONTAINER_NAME} \
+                                    --restart unless-stopped \
+                                    -p ${HOST_PORT}:${CONTAINER_PORT} \
+                                    ${IMAGE_NAME}:${params.IMAGE_TAG}
+                            "
+                        """
+                    }
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo "========== CD #${BUILD_NUMBER} — ${APP_NAME}:${params.IMAGE_TAG} desplegado en ${params.ENVIRONMENT} =========="
+        }
+        failure {
+            echo "========== CD #${BUILD_NUMBER} fallido — entorno: ${params.ENVIRONMENT} =========="
+        }
+    }
+}

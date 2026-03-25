@@ -1,0 +1,80 @@
+pipeline {
+
+   agent any
+
+   environment {
+      APP_NAME   = 'alerta-radar'
+      IMAGE_NAME = "rovidev/${APP_NAME}"
+      IMAGE_TAG  = "${BUILD_NUMBER}"
+   }
+
+   triggers {
+      // Ejecuta CI en cada push a cualquier rama
+      pollSCM('H/1 * * * *') // Verifica cambios cada 1 minuto
+   }
+
+   stages {
+
+      stage('Install & Build') {
+         agent {
+               docker {
+                  image 'node:20-alpine'
+                  reuseNode true
+               }
+         }
+         steps {
+               echo "========== [CI] Install & Build — rama: ${env.BRANCH_NAME} =========="
+               sh '''
+                  npm install
+                  npm run build
+               '''
+         }
+      }
+
+      stage('Docker Build & Push') {
+         steps {
+               echo "========== [CI] Docker Build & Push =========="
+               withCredentials([usernamePassword(
+                  credentialsId: 'dockerhub-credentials',
+                  usernameVariable: 'DOCKER_USER',
+                  passwordVariable: 'DOCKER_PASS'
+               )]) {
+                  sh """
+                     docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                     docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                     echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+                     docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                     docker push ${IMAGE_NAME}:latest
+                     docker logout
+                  """
+               }
+         }
+      }
+
+   }
+
+   post {
+      always {
+         sh """
+            docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true
+            docker image prune -f || true
+         """
+      }
+      success {
+         echo "========== CI #${BUILD_NUMBER} completado — ${IMAGE_NAME}:${IMAGE_TAG} =========="
+         script {
+               // BRANCH_NAME es provisto automáticamente por Multibranch Pipeline
+               def targetEnv = env.BRANCH_NAME == 'main' ? 'prod' : 'dev'
+               build job: 'alerta-radar-cd',
+                     parameters: [
+                        string(name: 'IMAGE_TAG',   value: "${BUILD_NUMBER}"),
+                        string(name: 'ENVIRONMENT', value: targetEnv)
+                     ],
+                     wait: false
+         }
+      }
+      failure {
+         echo "========== CI #${BUILD_NUMBER} fallido — rama: ${env.BRANCH_NAME} =========="
+      }
+   }
+}
