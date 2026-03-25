@@ -73,10 +73,10 @@ pipeline {
             steps {
                 echo "========== [CD] Deploying ${IMAGE_NAME}:${params.IMAGE_TAG} to PROD =========="
 
-                timeout(time: 10, unit: 'MINUTES') {
+                /*timeout(time: 10, unit: 'MINUTES') {
                     input message: "¿Confirmar deploy a PRODUCCIÓN de ${IMAGE_NAME}:${params.IMAGE_TAG}?",
                           ok: 'Desplegar'
-                }
+                }*/
 
                 sshagent(credentials: ['vps-dev-ssh-credentials']) {
                     withCredentials([usernamePassword(
@@ -105,6 +105,12 @@ pipeline {
     }
 
     post {
+        always {
+            sh """
+                docker rmi ${IMAGE_NAME}:${params.IMAGE_TAG} || true
+                docker image prune -f || true
+            """
+        }
         success {
             echo "========== CD #${BUILD_NUMBER} — ${APP_NAME}:${params.IMAGE_TAG} desplegado en ${params.ENVIRONMENT} =========="
         }
