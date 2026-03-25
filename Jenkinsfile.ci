@@ -64,8 +64,9 @@ pipeline {
          echo "========== CI #${BUILD_NUMBER} completado — ${IMAGE_NAME}:${IMAGE_TAG} =========="
          script {
                // BRANCH_NAME es provisto automáticamente por Multibranch Pipeline
-               def targetEnv = env.BRANCH_NAME == 'main' ? 'prod' : 'dev'
-               build job: 'alerta-radar-cd',
+               // def targetEnv = env.BRANCH_NAME == 'main' ? 'main' : 'dev'
+               def targetEnv = env.BRANCH_NAME
+               build job: "local-wsl-pipeline/alerta-radar-cd/${targetEnv}",
                      parameters: [
                         string(name: 'IMAGE_TAG',   value: "${BUILD_NUMBER}"),
                         string(name: 'ENVIRONMENT', value: targetEnv)
